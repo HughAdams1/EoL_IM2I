@@ -21,6 +21,8 @@ register_env("spread", lambda config: ParallelPettingZooEnv(env_creator(config))
 env = ParallelPettingZooEnv(env_creator(config))
 observation_space = env.observation_space
 action_space = env.action_space
+print(action_space)
+print(observation_space)
 del env
 
 config["multiagent"] = {
@@ -46,7 +48,7 @@ trainer = a3c.A3CTrainer(config=config, env="spread")
 
 results = []
 
-for i in range(100):
+for i in range(10):
     result = trainer.train()
     results.append(result)
     print(pretty_print(result))

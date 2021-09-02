@@ -14,7 +14,7 @@ from ray.rllib.agents.
 #local mode good for debugging - change when running experiments
 ray.init(local_mode=True)
 
-tune.run(PPOTrainer, config={"env": "CartPole-v0"})
+#tune.run(PPOTrainer, config={"env": "CartPole-v0"})
 
 env = simple_spread_v2.parallel_env()
 def simple_policy(agent):

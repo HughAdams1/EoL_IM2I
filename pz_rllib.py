@@ -54,9 +54,14 @@ trainer = a3c.A3CTrainer(config=config, env="spread")
 
 results = []
 
-for i in range(1000):
+for i in range(100):
     result = trainer.train()
     results.append(result)
     print(pretty_print(result))
+
+    if i % 10 == 0:
+        checkpoint = trainer.save()
+        print("checkpoint saved at", checkpoint)
+
 
 #tune.run("PPO", config=config, stop={"episodes_total": 60}, checkpoint_freq=10)

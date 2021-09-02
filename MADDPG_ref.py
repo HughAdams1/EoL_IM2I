@@ -1,6 +1,6 @@
 import os
 import ray
-import ray.rllib.agents.a3c as a3c
+import ray.rllib.agents.maddpg as maddpg
 from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 from pettingzoo.mpe import simple_reference_v2
 from ray.tune.registry import register_env
