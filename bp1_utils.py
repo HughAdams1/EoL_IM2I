@@ -8,17 +8,21 @@ import argparse
 import numpy as np
 import ray
 import ray.rllib.agents.ppo as ppo
-from ray.rllib.agents.ppo.ppo import PPOTrainer
+
+###############################################
+#from ray.rllib.agents.ppo.ppo import PPOTrainer
+from ppo_mod import PPOTrainer
+###############################################
+
+#######################################################################
+from ppo_policy_mod import PPOTorchPolicy, \
+    KLCoeffMixin as TorchKLCoeffMixin, ppo_surrogate_loss as torch_loss
+#######################################################################
+
 from ray.rllib.agents.ppo.ppo_tf_policy import PPOTFPolicy, KLCoeffMixin, \
     ppo_surrogate_loss as tf_loss
-from ray.rllib.agents.ppo.ppo_torch_policy import PPOTorchPolicy, \
-    KLCoeffMixin as TorchKLCoeffMixin, ppo_surrogate_loss as torch_loss
 from ray.rllib.evaluation.postprocessing import compute_advantages, \
     Postprocessing
-from ray.rllib.examples.env.two_step_game import TwoStepGame
-from ray.rllib.examples.models.centralized_critic_models import \
-    CentralizedCriticModel, TorchCentralizedCriticModel
-from ray.rllib.models import ModelCatalog
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.tf_policy import LearningRateSchedule, \
     EntropyCoeffSchedule
@@ -50,37 +54,9 @@ torch, nn = try_import_torch()
 OPPONENT_OBS = "opponent_obs"
 OPPONENT_ACTION = "opponent_action"
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--framework",
-    choices=["tf", "tf2", "tfe", "torch"],
-    default="torch",
-    help="The DL framework specifier.")
-parser.add_argument(
-    "--as-test",
-    action="store_true",
-    help="Whether this script should be run as a test: --stop-reward must "
-    "be achieved within --stop-timesteps AND --stop-iters.")
-parser.add_argument(
-    "--stop-iters",
-    type=int,
-    default=100,
-    help="Number of iterations to train.")
-parser.add_argument(
-    "--stop-timesteps",
-    type=int,
-    default=100000,
-    help="Number of timesteps to train.")
-parser.add_argument(
-    "--stop-reward",
-    type=float,
-    default=7.99,
-    help="Reward at which we stop training.")
-
-############## my addition ########################
-
-class mod_TorchCentralizedCriticModel(TorchModelV2, nn.Module):
-    """Multi-agent model that implements a centralized VF."""
+class TorchCentralizedCriticModel(TorchModelV2, nn.Module):
+    """Multi-agent model that implements a centralized VF. Changed to fit petting zoo
+    obs and action spaces. Also includes a model of teacher"""
 
     def __init__(self, obs_space, action_space, num_outputs, model_config,
                  name):
@@ -93,11 +69,13 @@ class mod_TorchCentralizedCriticModel(TorchModelV2, nn.Module):
                              model_config, name)
 
         # Central VF maps (obs, opp_obs, opp_act) -> vf_pred
-        input_size = 92#len(obs_space) + len(obs_space) + len(action_space)  # obs + opp_obs + opp_act
+        input_size = 92  # len(obs_space) + len(obs_space) + len(action_space)  # obs + opp_obs + opp_act
         self.central_vf = nn.Sequential(
             SlimFC(input_size, 32, activation_fn=nn.Tanh),
             SlimFC(32, 1),
         )
+        self.model_of_teacher = TorchFC(obs_space, action_space, num_outputs,
+                                        model_config, name)
 
     @override(ModelV2)
     def forward(self, input_dict, state, seq_lens):
@@ -109,12 +87,19 @@ class mod_TorchCentralizedCriticModel(TorchModelV2, nn.Module):
             obs, opponent_obs,
             torch.nn.functional.one_hot(opponent_actions.long(), 50).float()  # changed from 2 which was for Twostepgame
         ], 1)
-        #print("input:",input_.shape)
         return torch.reshape(self.central_vf(input_), [-1])
+
+    def mot_forward(self, input_dict, state, seq_lens):
+        mot_out, _ = self.model_of_teacher(input_dict, state, seq_lens)
+        return mot_out, []
 
     @override(ModelV2)
     def value_function(self):
         return self.model.value_function()  # not used
+
+    def mot_forward(self, input_dict, state, seq_lens):
+        mot_out, _ = self.model_of_teacher(input_dict, state, seq_lens)
+        return mot_out, []
 
 
 
@@ -128,6 +113,15 @@ class CentralizedValueMixin:
         else:
             self.compute_central_vf = self.model.central_value_function
 
+class TeacherPredictMixin:
+    """Add method to evaluate the central value function from the model."""
+
+    def __init__(self):
+        if self.config["framework"] != "torch":
+            self.compute_teacher_prediction = make_tf_callable(self.get_session())(
+                self.model.predict_teacher_action)
+        else:
+            self.compute_teacher_prediction = self.model.predict_teacher_action
 
 # Grabs the opponent obs/act and includes it in the experience train_batch,
 # and computes GAE using the central vf predictions.
@@ -146,19 +140,19 @@ def centralized_critic_postprocessing(policy,
         sample_batch[OPPONENT_ACTION] = opponent_batch[SampleBatch.ACTIONS]
 
         # overwrite default VF prediction with the central VF
-        if args.framework == "torch":
-            sample_batch[SampleBatch.VF_PREDS] = policy.compute_central_vf(
-                convert_to_torch_tensor(
-                    sample_batch[SampleBatch.CUR_OBS], policy.device),
-                convert_to_torch_tensor(
-                    sample_batch[OPPONENT_OBS], policy.device),
-                convert_to_torch_tensor(
-                    sample_batch[OPPONENT_ACTION], policy.device)) \
-                .cpu().detach().numpy()
-        else:
-            sample_batch[SampleBatch.VF_PREDS] = policy.compute_central_vf(
-                sample_batch[SampleBatch.CUR_OBS], sample_batch[OPPONENT_OBS],
-                sample_batch[OPPONENT_ACTION])
+        #if args.framework == "torch":
+        sample_batch[SampleBatch.VF_PREDS] = policy.compute_central_vf(
+            convert_to_torch_tensor(
+                sample_batch[SampleBatch.CUR_OBS], policy.device),
+            convert_to_torch_tensor(
+                sample_batch[OPPONENT_OBS], policy.device),
+            convert_to_torch_tensor(
+                sample_batch[OPPONENT_ACTION], policy.device)) \
+            .cpu().detach().numpy()
+        #else:
+         #   sample_batch[SampleBatch.VF_PREDS] = policy.compute_central_vf(
+          #      sample_batch[SampleBatch.CUR_OBS], sample_batch[OPPONENT_OBS],
+           #     sample_batch[OPPONENT_ACTION])
     else:
         # Policy hasn't been initialized yet, use zeros.
         sample_batch[OPPONENT_OBS] = np.zeros_like(
@@ -233,7 +227,7 @@ CCPPOTFPolicy = PPOTFPolicy.with_updates(
     grad_stats_fn=central_vf_stats,
     mixins=[
         LearningRateSchedule, EntropyCoeffSchedule, KLCoeffMixin,
-        CentralizedValueMixin
+        CentralizedValueMixin, TeacherPredictMixin
     ])
 
 CCPPOTorchPolicy = PPOTorchPolicy.with_updates(
@@ -243,7 +237,7 @@ CCPPOTorchPolicy = PPOTorchPolicy.with_updates(
     before_init=setup_torch_mixins,
     mixins=[
         TorchLR, TorchEntropyCoeffSchedule, TorchKLCoeffMixin,
-        CentralizedValueMixin
+        CentralizedValueMixin, TeacherPredictMixin
     ])
 
 def get_policy_class(config):
@@ -256,50 +250,3 @@ CCTrainer = PPOTrainer.with_updates(
     get_policy_class=get_policy_class,
 )
 
-if __name__ == "__main__":
-    config = ppo.DEFAULT_CONFIG.copy()
-    config["env_config"] = {"local_ratio": 0.5, "max_cycles": 25, "continuous_actions": False}
-    env = ParallelPettingZooEnv(env_creator(config))
-    observation_space = env.observation_space
-    action_space = env.action_space
-    del env
-
-    args = parser.parse_args()
-    ModelCatalog.register_custom_model(
-        "cc_model", mod_TorchCentralizedCriticModel
-        if args.framework == "torch" else CentralizedCriticModel)
-
-    config["multiagent"] = {
-        "env": "spread",
-        "policies": {"ppo_policy_2": (None, observation_space, action_space, {
-                    "framework": args.framework,
-                    }),
-                     "ppo_policy_1": (None, observation_space, action_space, {
-                         "framework": args.framework,
-                     })
-                     },
-        "policy_mapping_fn": lambda agent_id, episode, **kwargs: "ppo_policy_1" if "1" in agent_id else "ppo_policy_2",
-        "policies_to_train": ["ppo_policy_1", "ppo_policy_2"]
-    }
-    config["log_level"] = "WARN"
-    config["num_workers"] = 0
-    config["no_done_at_end"] = False
-    config["framework"] = args.framework
-    config["horizon"] = 100
-    config["rollout_fragment_length"] = 10
-    config["env"] = "spread"
-    config["model"] = {"custom_model": "cc_model"}
-    config["batch_mode"] = "complete_episodes"
-    ray.init(num_cpus=1)
-
-    results = []
-
-    trainer = CCTrainer(config=config, env="spread")
-    for i in range(20):
-        result = trainer.train()
-        results.append(result)
-        #print("episode_reward_mean:",result["episode_reward_mean"])
-
-        if i % 5 == 0:
-            checkpoint = trainer.save()
-            print("checkpoint saved at", checkpoint)
