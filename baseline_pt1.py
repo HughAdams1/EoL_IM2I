@@ -105,11 +105,11 @@ if __name__ == "__main__":
     results = []
     # CCTrainer._allow_unknown_configs = True, I changed this in file and it works
     trainer = CCTrainer(config=config, env="spread")
-    for i in range(100000):
+    for i in range(100):
         result = trainer.train()
         results.append(result)
         print("episode_reward_mean:", result["episode_reward_mean"])
 
-        if i % 10000 == 9999:
+        if i % 10 == 0:
             checkpoint = trainer.save()
             print("checkpoint saved at", checkpoint)
