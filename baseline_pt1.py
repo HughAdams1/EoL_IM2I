@@ -21,7 +21,7 @@ from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 from pettingzoo.mpe import simple_reference_v2
 from ray.tune.registry import register_env
 
-from bp1_utils import TorchCentralizedCriticModel as TorchCentralizedCriticModel_pz
+from bp1_utils import TorchCentralizedCriticModel
 from bp1_utils import CCTrainer
 
 def env_creator(config):
@@ -75,7 +75,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     ModelCatalog.register_custom_model(
-        "cc_model", TorchCentralizedCriticModel_pz
+        "cc_model", TorchCentralizedCriticModel
         if args.framework == "torch" else CentralizedCriticModel)
 
     config["multiagent"] = {
@@ -100,16 +100,64 @@ if __name__ == "__main__":
     config["model"] = {"custom_model": "cc_model"}
     config["batch_mode"] = "complete_episodes"
     config["use_intrinsic_imitation"] = False
+
+    config["exploration_config"] = {
+        "type": "Imitation",  # <- Use the Curiosity module for exploring.
+        "eta": 1.0,  # Weight for intrinsic rewards before being added to extrinsic ones.
+        "lr": 0.001,  # Learning rate of the curiosity (ICM) module.
+        "feature_dim": 50,  # Dimensionality of the generated feature vectors.
+        # Setup of the feature net (used to encode observations into feature (latent) vectors).
+        "feature_net_config": {
+            "fcnet_hiddens": [],
+            "fcnet_activation": "relu",
+        },
+        "inverse_net_hiddens": [256],  # Hidden layers of the "inverse" model.
+        "inverse_net_activation": "relu",  # Activation of the "inverse" model.
+        "forward_net_hiddens": [256],  # Hidden layers of the "forward" model.
+        "forward_net_activation": "relu",  # Activation of the "forward" model.
+        "beta": 0.2,  # Weight for the "forward" loss (beta) over the "inverse" loss (1.0 - beta).
+        # Specify, which exploration sub-type to use (usually, the algo's "default"
+        # exploration, e.g. EpsilonGreedy for DQN, StochasticSampling for PG/SAC).
+        "sub_exploration": {
+            "type": "StochasticSampling",
+        }
+    }
     ray.init(num_cpus=1)
 
     results = []
     # CCTrainer._allow_unknown_configs = True, I changed this in file and it works
     trainer = CCTrainer(config=config, env="spread")
-    for i in range(100):
+    for i in range(2):
         result = trainer.train()
         results.append(result)
         print("episode_reward_mean:", result["episode_reward_mean"])
+        #if i % 100 == 0:
+            #print("episode_reward_mean:", result["episode_reward_mean"])
 
-        if i % 10 == 0:
+        if i % 1000 == 999:
             checkpoint = trainer.save()
             print("checkpoint saved at", checkpoint)
+
+"""
+    config["exploration_config"] = {
+        "type": "Imitation",  # <- Use the Curiosity module for exploring.
+        "eta": 1.0,  # Weight for intrinsic rewards before being added to extrinsic ones.
+        "lr": 0.001,  # Learning rate of the curiosity (ICM) module.
+        "feature_dim": 288,  # Dimensionality of the generated feature vectors.
+        # Setup of the feature net (used to encode observations into feature (latent) vectors).
+        "feature_net_config": {
+            "fcnet_hiddens": [],
+            "fcnet_activation": "relu",
+        },
+        "inverse_net_hiddens": [256],  # Hidden layers of the "inverse" model.
+        "inverse_net_activation": "relu",  # Activation of the "inverse" model.
+        "forward_net_hiddens": [256],  # Hidden layers of the "forward" model.
+        "forward_net_activation": "relu",  # Activation of the "forward" model.
+        "beta": 0.2,  # Weight for the "forward" loss (beta) over the "inverse" loss (1.0 - beta).
+        # Specify, which exploration sub-type to use (usually, the algo's "default"
+        # exploration, e.g. EpsilonGreedy for DQN, StochasticSampling for PG/SAC).
+        "sub_exploration": {
+            "type": "StochasticSampling",
+        }
+    }
+"""

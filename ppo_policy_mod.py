@@ -101,11 +101,18 @@ def ppo_surrogate_loss(
     if policy.config["use_intrinsic_imitation"]:
     #get the output of mot based on current observations
         teacher_action = model.model_of_teacher(train_batch)
-        teacher_loss = teacher_action[0] - logits # could use a different metric here
+        #print('t_action:', teacher_action[0].shape )
+        #print("logits:", logits.shape)
+        teacher_loss = torch.mean(teacher_action[0] - logits, 1) # could use a different metric here
+        #print("t_loss:", teacher_loss.shape)
         mean_teacher_loss = reduce_mean_valid(teacher_loss)
     else:
         teacher_loss = mean_teacher_loss = 0.0
 
+    #print("surrogate loss:", surrogate_loss.shape)
+    #print("action_kl:", action_kl.shape)
+    #print("vf_loss", vf_loss)
+    #print("curr_entropy:", curr_entropy.shape)
     total_loss = reduce_mean_valid(-surrogate_loss +
                                    policy.kl_coeff * action_kl +
                                    policy.config["vf_loss_coeff"] * vf_loss -
