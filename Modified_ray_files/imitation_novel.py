@@ -1,17 +1,15 @@
 """
 This is a Novel Exploration module, added in to ray/rllib/utils/exploration
 """
+
 from gym.spaces import Discrete, MultiDiscrete, Space
 import numpy as np
 from typing import Optional, Tuple, Union
-
 from ray.rllib.models.action_dist import ActionDistribution
 from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.modelv2 import ModelV2
 from ray.rllib.models.tf.tf_action_dist import Categorical, MultiCategorical
 from ray.rllib.models.torch.misc import SlimFC
-from ray.rllib.models.torch.torch_action_dist import TorchCategorical, \
-    TorchMultiCategorical
 from ray.rllib.models.utils import get_activation_fn
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils import NullContextManager
@@ -20,8 +18,7 @@ from ray.rllib.utils.exploration.exploration import Exploration
 from ray.rllib.utils.framework import try_import_tf, \
     try_import_torch
 from ray.rllib.utils.from_config import from_config
-from ray.rllib.utils.tf_ops import get_placeholder, one_hot as tf_one_hot
-from ray.rllib.utils.torch_ops import one_hot
+from ray.rllib.utils.tf_ops import one_hot as tf_one_hot
 from ray.rllib.utils.typing import FromConfigSpec, ModelConfigDict, TensorType
 
 tf1, tf, tfv = try_import_tf()
@@ -56,14 +53,8 @@ class Imitation(Exploration):
                  action_space: Space,
                  *,
                  framework: str,
-                 model: ModelV2,
-                 feature_dim: int = 288,
-                 feature_net_config: Optional[ModelConfigDict] = None,
                  teacher_net_config: Optional[ModelConfigDict] = None,
-                 inverse_net_hiddens: Tuple[int] = (256, ),
-                 inverse_net_activation: str = "relu",
-                 forward_net_hiddens: Tuple[int] = (256, ),
-                 forward_net_activation: str = "relu",
+                 model: ModelV2,
                  beta: float = 0.2,
                  eta: float = 1.0,
                  lr: float = 1e-3,
@@ -114,15 +105,6 @@ class Imitation(Exploration):
                 "Curiosity exploration currently does not support parallelism."
                 " `num_workers` must be 0!")
 
-        self.feature_dim = feature_dim
-        if feature_net_config is None:
-            feature_net_config = self.policy_config["model"].copy()
-        self.feature_net_config = feature_net_config
-        self.inverse_net_hiddens = inverse_net_hiddens
-        self.inverse_net_activation = inverse_net_activation
-        self.forward_net_hiddens = forward_net_hiddens
-        self.forward_net_activation = forward_net_activation
-
         if teacher_net_config is None:
             teacher_net_config = self.policy_config["model"].copy()
         self.teacher_net_config = teacher_net_config
@@ -133,39 +115,16 @@ class Imitation(Exploration):
         self.beta = beta
         self.eta = eta
         self.lr = lr
-        # TODO: (sven) if sub_exploration is None, use Trainer's default
-        #  Exploration config.
+
         if sub_exploration is None:
             raise NotImplementedError
         self.sub_exploration = sub_exploration
 
         # Creates modules/layers inside the actual ModelV2.
-        self._curiosity_feature_net = ModelCatalog.get_model_v2(
-            self.model.obs_space,
-            self.action_space,
-            self.feature_dim,
-            model_config=self.feature_net_config,
-            framework=self.framework,
-            name="feature_net",
-        )
-
-        self._curiosity_inverse_fcnet = self._create_fc_net(
-            [2 * self.feature_dim] + list(self.inverse_net_hiddens) +
-            [self.action_dim],
-            self.inverse_net_activation,
-            name="inverse_net")
-
-        self._curiosity_forward_fcnet = self._create_fc_net(
-            [self.feature_dim + self.action_dim] + list(
-                self.forward_net_hiddens) + [self.feature_dim],
-            self.forward_net_activation,
-            name="forward_net")
-
-        # My addition
         self._teacher_net = ModelCatalog.get_model_v2(
             self.model.obs_space,
             self.action_space,
-            self.feature_dim, # my addition - might be the wrong format
+            self.action_space.n, # my addition - might be the wrong format
             model_config=self.teacher_net_config,
             framework=self.framework,
             name="teacher_net",
@@ -202,58 +161,20 @@ class Imitation(Exploration):
         # update loop, which we don't want (curiosity updating happens inside
         # `postprocess_trajectory`).
         if self.framework == "torch":
-            feature_params = list(self._curiosity_feature_net.parameters())
-            inverse_params = list(self._curiosity_inverse_fcnet.parameters())
-            forward_params = list(self._curiosity_forward_fcnet.parameters())
-
             # my addition
             teacher_params = list(self._teacher_net.parameters())
 
             # Now that the Policy's own optimizer(s) have been created (from
             # the Model parameters (IMPORTANT: w/o(!) the curiosity params),
             # we can add our curiosity sub-modules to the Policy's Model.
-            self.model._curiosity_feature_net = \
-                self._curiosity_feature_net.to(self.device)
-            self.model._curiosity_inverse_fcnet = \
-                self._curiosity_inverse_fcnet.to(self.device)
-            self.model._curiosity_forward_fcnet = \
-                self._curiosity_forward_fcnet.to(self.device)
-
             self.model._teacher_net = \
                 self._teacher_net.to(self.device)
-
-            self._optimizer = torch.optim.Adam(
-                forward_params + inverse_params + feature_params, lr=self.lr)
-
-            #My addition
-            self.model._teacher_net = \
-                self._teacher_net.to(self.device)
-
             # my addition
             self._optimizer_teach = torch.optim.Adam(
                 teacher_params, lr=self.lr
             )
         else:
-            self.model._curiosity_feature_net = self._curiosity_feature_net
-            self.model._curiosity_inverse_fcnet = self._curiosity_inverse_fcnet
-            self.model._curiosity_forward_fcnet = self._curiosity_forward_fcnet
-            # Feature net is a RLlib ModelV2, the other 2 are keras Models.
-            self._optimizer_var_list = \
-                self._curiosity_feature_net.base_model.variables + \
-                self._curiosity_inverse_fcnet.variables + \
-                self._curiosity_forward_fcnet.variables
-            self._optimizer = tf1.train.AdamOptimizer(learning_rate=self.lr)
-            # Create placeholders and initialize the loss.
-            if self.framework == "tf":
-                self._obs_ph = get_placeholder(
-                    space=self.model.obs_space, name="_curiosity_obs")
-                self._next_obs_ph = get_placeholder(
-                    space=self.model.obs_space, name="_curiosity_next_obs")
-                self._action_ph = get_placeholder(
-                    space=self.model.action_space, name="_curiosity_action")
-                self._forward_l2_norm_sqared, self._update_op = \
-                    self._postprocess_helper_tf(
-                        self._obs_ph, self._next_obs_ph, self._action_ph)
+            print("only running in Torch")
 
         return optimizers
 
@@ -261,10 +182,12 @@ class Imitation(Exploration):
     def postprocess_trajectory(self, policy, sample_batch,
                                other_agent_batches = None, agent_id = None, episode = None,
                                tf_sess=None):
-        """Calculates phi values (obs, obs', and predicted obs') and ri.
+        """Calculates predicted teacher action
 
-        Also calculates forward and inverse losses and updates the curiosity
+        Also calculates forward and inverse losses and updates the Imitation
         module on the provided batch using our optimizer.
+
+        ignore TF stuff
         """
         if self.framework != "torch":
             self._postprocess_tf(policy, sample_batch, tf_sess)
@@ -378,9 +301,9 @@ class Imitation(Exploration):
                     sample_batch[SampleBatch.REWARDS] + \
                     self.eta * forward_l2_norm_sqared.detach().cpu().numpy()
 
-                self._optimizer.zero_grad()
+                self._optimizer_teach.zero_grad()
                 loss.backward()
-                self._optimizer.step()
+                self._optimizer_teach.step()
                 #import ipdb
                 #ipdb.set_trace()
 

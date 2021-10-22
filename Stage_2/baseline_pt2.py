@@ -3,10 +3,8 @@ PPO to see how it fairs
 """
 
 import argparse
-import numpy as np
 import ray
 import ppo_mod as ppo
-from ppo_mod import PPOTrainer as PPOTrainer_mod
 from ray.rllib.examples.models.centralized_critic_models import \
     CentralizedCriticModel
 from ray.rllib.models import ModelCatalog
@@ -14,14 +12,8 @@ from ray.rllib.utils.framework import try_import_tf, try_import_torch
 from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 from pettingzoo.mpe import simple_reference_v2
 from ray.tune.registry import register_env
-
-###########################
 from bp1_utils import TorchCentralizedCriticModel
 from bp1_utils import CCTrainer as CCTrainer_loaded
-
-
-
-###########################
 
 def env_creator(config):
     env = simple_reference_v2.parallel_env()
@@ -41,28 +33,7 @@ parser.add_argument(
     "--framework",
     choices=["tf", "tf2", "tfe", "torch"],
     default="torch",
-    help="The DL framework specifier.")
-parser.add_argument(
-    "--as-test",
-    action="store_true",
-    help="Whether this script should be run as a test: --stop-reward must "
-         "be achieved within --stop-timesteps AND --stop-iters.")
-parser.add_argument(
-    "--stop-iters",
-    type=int,
-    default=100,
-    help="Number of iterations to train.")
-parser.add_argument(
-    "--stop-timesteps",
-    type=int,
-    default=100000,
-    help="Number of timesteps to train.")
-parser.add_argument(
-    "--stop-reward",
-    type=float,
-    default=7.99,
-    help="Reward at which we stop training.")
-
+    help="The DL framework 6.")
 
 if __name__ == "__main__":
     config = ppo.DEFAULT_CONFIG.copy()
@@ -96,10 +67,12 @@ if __name__ == "__main__":
     config["horizon"] = 100
     config["rollout_fragment_length"] = 10
     config["env"] = "spread"
-    config["model"] = {"custom_model": "cc_model"}
+    config["model"] = {"custom_model": "cc_model",
+                       "fcnet_hiddens": [128, 128],
+                       "fcnet_activation": nn.Tanh
+                       }
     config["batch_mode"] = "complete_episodes"
     config["use_critic"] = False
-    config["use_intrinsic_imitation"] = False
     ray.init(num_cpus=1)
 
     trainer_loaded = CCTrainer_loaded(config=config, env="spread")
@@ -132,32 +105,12 @@ if __name__ == "__main__":
     config_student["horizon"] = 100
     config_student["rollout_fragment_length"] = 10
     config_student["env"] = "spread"
-    config_student["model"] = {"custom_model": "cc_model"}
+    config_student["model"] = {"custom_model": "cc_model",
+                       "fcnet_hiddens": [128, 128],
+                       "fcnet_activation": nn.Tanh
+                       }
     config_student["batch_mode"] = "complete_episodes"
     config_student["use_critic"] = False
-    config_student["use_intrinsic_imitation"] = False
-    config["exploration_config"] = {
-        "type": "Imitation",  # <- Use the Curiosity module for exploring.
-        "eta": 1.0,  # Weight for intrinsic rewards before being added to extrinsic ones.
-        "lr": 0.001,  # Learning rate of the curiosity (ICM) module.
-        "feature_dim": 288,  # Dimensionality of the generated feature vectors.
-        # Setup of the feature net (used to encode observations into feature (latent) vectors).
-        "feature_net_config": {
-            "fcnet_hiddens": [],
-            "fcnet_activation": "relu",
-        },
-        "inverse_net_hiddens": [256],  # Hidden layers of the "inverse" model.
-        "inverse_net_activation": "relu",  # Activation of the "inverse" model.
-        "forward_net_hiddens": [256],  # Hidden layers of the "forward" model.
-        "forward_net_activation": "relu",  # Activation of the "forward" model.
-        "beta": 0.2,  # Weight for the "forward" loss (beta) over the "inverse" loss (1.0 - beta).
-        # Specify, which exploration sub-type to use (usually, the algo's "default"
-        # exploration, e.g. EpsilonGreedy for DQN, StochasticSampling for PG/SAC).
-        "sub_exploration": {
-            "type": "StochasticSampling",
-        }
-    }
-
 
     trainer_snt = CCTrainer_loaded(config=config_student, env="spread")
     trainer_snt.set_weights(trainer_loaded.get_weights(["ppo_policy_1"]))

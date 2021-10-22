@@ -8,11 +8,7 @@ config "use_intrinsic_imitation".
 
 import argparse
 import ray
-###################################
-#import ray.rllib.agents.ppo as ppo
 import ppo_mod as ppo
-###################################
-
 from ray.rllib.examples.models.centralized_critic_models import \
     CentralizedCriticModel
 from ray.rllib.models import ModelCatalog
@@ -20,7 +16,6 @@ from ray.rllib.utils.framework import try_import_tf, try_import_torch
 from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 from pettingzoo.mpe import simple_reference_v2
 from ray.tune.registry import register_env
-
 from bp1_utils import TorchCentralizedCriticModel
 from bp1_utils import CCTrainer
 
@@ -43,27 +38,6 @@ parser.add_argument(
     choices=["tf", "tf2", "tfe", "torch"],
     default="torch",
     help="The DL framework specifier.")
-parser.add_argument(
-    "--as-test",
-    action="store_true",
-    help="Whether this script should be run as a test: --stop-reward must "
-    "be achieved within --stop-timesteps AND --stop-iters.")
-parser.add_argument(
-    "--stop-iters",
-    type=int,
-    default=100,
-    help="Number of iterations to train.")
-parser.add_argument(
-    "--stop-timesteps",
-    type=int,
-    default=100000,
-    help="Number of timesteps to train.")
-parser.add_argument(
-    "--stop-reward",
-    type=float,
-    default=7.99,
-    help="Reward at which we stop training.")
-
 
 if __name__ == "__main__":
     config = ppo.DEFAULT_CONFIG.copy()
@@ -97,22 +71,35 @@ if __name__ == "__main__":
     config["horizon"] = 100
     config["rollout_fragment_length"] = 10
     config["env"] = "spread"
-    config["model"] = {"custom_model": "cc_model"}
+    config["model"] = {"custom_model": "cc_model",
+                       "fcnet_hiddens": [128, 128],
+                       "fcnet_activation": nn.Tanh
+                       }
     config["batch_mode"] = "complete_episodes"
     config["use_critic"] = False
-    config["use_intrinsic_imitation"] = True
+    config["exploration_config"] = {
+        "type": "Imitation",  # <- Use the Curiosity module for exploring.
+        "eta": 1.0,  # Weight for intrinsic rewards before being added to extrinsic ones.
+        "lr": 0.001,  # Learning rate of the curiosity (ICM) module.
+
+        "beta": 0.2,  # Weight for the "forward" loss (beta) over the "inverse" loss (1.0 - beta).
+        # Specify, which exploration sub-type to use (usually, the algo's "default"
+        # exploration, e.g. EpsilonGreedy for DQN, StochasticSampling for PG/SAC).
+        "sub_exploration": {
+            "type": "StochasticSampling",
+        }
+    }
+
     ray.init(num_cpus=1)
 
     results = []
     # CCTrainer._allow_unknown_configs = True, I changed this in file and it works
     trainer = CCTrainer(config=config, env="spread")
-    for i in range(10000):
+    for i in range(5000):
         result = trainer.train()
         results.append(result)
-        #print("episode_reward_mean:", result["episode_reward_mean"])
-        if i % 2 == 0:
-            print("episode_reward_mean:", result["episode_reward_mean"])
-
-        if i % 1000 == 999:
+        print("episode", i, "reward_mean:", result["episode_reward_mean"])
+        if i % 50 == 0:
             checkpoint = trainer.save()
             print("checkpoint saved at", checkpoint)
+
