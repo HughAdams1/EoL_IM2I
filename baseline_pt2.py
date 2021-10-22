@@ -41,7 +41,7 @@ parser.add_argument(
     "--framework",
     choices=["tf", "tf2", "tfe", "torch"],
     default="torch",
-    help="The DL framework specifier.")
+    help="The DL framework 6.")
 parser.add_argument(
     "--as-test",
     action="store_true",
@@ -135,7 +135,8 @@ if __name__ == "__main__":
     config_student["model"] = {"custom_model": "cc_model"}
     config_student["batch_mode"] = "complete_episodes"
     config_student["use_critic"] = False
-    config_student["use_intrinsic_imitation"] = True
+    config_student["use_intrinsic_imitation"] = False
+
 
     trainer_snt = CCTrainer_loaded(config=config_student, env="spread")
     trainer_snt.set_weights(trainer_loaded.get_weights(["ppo_policy_1"]))

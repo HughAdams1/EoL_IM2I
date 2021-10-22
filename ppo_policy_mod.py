@@ -98,26 +98,10 @@ def ppo_surrogate_loss(
     else:
         vf_loss = mean_vf_loss = 0.0
 
-    if policy.config["use_intrinsic_imitation"]:
-    #get the output of mot based on current observations
-        teacher_action = model.model_of_teacher(train_batch)
-        #print('t_action:', teacher_action[0].shape )
-        #print("logits:", logits.shape)
-        teacher_loss = torch.mean(teacher_action[0] - logits, 1) # could use a different metric here
-        #print("t_loss:", teacher_loss.shape)
-        mean_teacher_loss = reduce_mean_valid(teacher_loss)
-    else:
-        teacher_loss = mean_teacher_loss = 0.0
-
-    #print("surrogate loss:", surrogate_loss.shape)
-    #print("action_kl:", action_kl.shape)
-    #print("vf_loss", vf_loss)
-    #print("curr_entropy:", curr_entropy.shape)
     total_loss = reduce_mean_valid(-surrogate_loss +
                                    policy.kl_coeff * action_kl +
                                    policy.config["vf_loss_coeff"] * vf_loss -
-                                   policy.entropy_coeff * curr_entropy +
-                                   teacher_loss
+                                   policy.entropy_coeff * curr_entropy
                                    )
 
 
@@ -129,8 +113,6 @@ def ppo_surrogate_loss(
         train_batch[Postprocessing.VALUE_TARGETS], model.value_function())
     policy._mean_entropy = mean_entropy
     policy._mean_kl = mean_kl
-    policy._mean_teacher_loss = mean_teacher_loss
-
     return total_loss
 
 
@@ -153,7 +135,6 @@ def kl_and_loss_stats(policy: Policy,
         "kl": policy._mean_kl,
         "entropy": policy._mean_entropy,
         "entropy_coeff": policy.entropy_coeff,
-        "teacher_loss": policy._mean_teacher_loss
     }
 
 
