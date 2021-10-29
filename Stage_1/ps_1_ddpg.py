@@ -5,7 +5,6 @@ my modifications in from ppo_mod and ppo_policy_mod which are taken from rllib's
 I have made a small change to rllib.agents.trainer, trainer.allow_unknown_configs = True. This allows me to create the
 config "use_intrinsic_imitation".
 """
-
 import argparse
 import ray
 import ppo_mod as ppo
@@ -18,10 +17,13 @@ from pettingzoo.mpe import simple_reference_v2
 from ray.tune.registry import register_env
 from bp1_utils import TorchCentralizedCriticModel
 from bp1_utils import CCTrainer
+from ray.rllib.agents.ddpg.ddpg import DDPGTrainer
+from ray.rllib.agents.ddpg import ddpg
 from bp1_utils import save_obj
 
+
 def env_creator(config):
-    env = simple_reference_v2.parallel_env()
+    env = simple_reference_v2.parallel_env(continuous_actions=True)
     return env
 
 register_env("spread", lambda config: ParallelPettingZooEnv(env_creator(config)))
@@ -41,56 +43,63 @@ parser.add_argument(
     help="The DL framework specifier.")
 
 if __name__ == "__main__":
-    config = ppo.DEFAULT_CONFIG.copy()
-    config["env_config"] = {"local_ratio": 0.5, "max_cycles": 25, "continuous_actions": False}
+    config = ddpg.DEFAULT_CONFIG.copy()
+    config["env_config"] = {"local_ratio": 0.5, "max_cycles": 25, "continuous_actions": True}
     env = ParallelPettingZooEnv(env_creator(config))
     observation_space = env.observation_space
     action_space = env.action_space
     del env
 
     args = parser.parse_args()
-    ModelCatalog.register_custom_model(
-        "cc_model", TorchCentralizedCriticModel
-        if args.framework == "torch" else CentralizedCriticModel)
 
     config["multiagent"] = {
         "env": "spread",
-        "policies": {"ppo_policy_2": (None, observation_space, action_space, {
+        "policies": {"shared_policy": (None, observation_space, action_space, {
                     "framework": args.framework,
                     }),
-                     "ppo_policy_1": (None, observation_space, action_space, {
-                         "framework": args.framework,
-                     })
                      },
-        "policy_mapping_fn": lambda agent_id, episode, **kwargs: "ppo_policy_1" if "1" in agent_id else "ppo_policy_2",
-        "policies_to_train": ["ppo_policy_1", "ppo_policy_2"]
+        "policy_mapping_fn": lambda agent_id, episode, **kwargs: "shared_policy",
+        "policies_to_train": ["shared_policy"]
     }
+    config["actor_hiddens"] = [64, 64]
+    config["critic_hiddens"] = [64, 64]
+    config["twin_q"] = True
+    config["smooth_target_policy"] = True
+    #config['simple_optimizer'] = True
     config["log_level"] = "WARN"
+    config["critic_lr"] = 0.01
+    config["actor_lr"] = 0.01
+    config["gamma"] = 0.95
+    config["tau"] = 0.01
+    config["buffer_size"] = 1000000 #1e6
+    config["train_batch_size"] = 1024
     config["num_workers"] = 0
     config["no_done_at_end"] = False
     config["framework"] = args.framework
     config["horizon"] = 100
-    config["rollout_fragment_length"] = 10
+    config["rollout_fragment_length"] = 100
+    #config["training_intensity"] = 100
     config["env"] = "spread"
-    config["model"] = {"custom_model": "cc_model",
-                       "fcnet_hiddens": [128, 128],
+    config["model"] = {#"custom_model": "cc_model",
+                       "fcnet_hiddens": [64, 64],
                        "fcnet_activation": nn.ReLU
                        }
     config["batch_mode"] = "complete_episodes"
-    config["use_critic"] = True
-
 
     ray.init()
 
     results = []
     # CCTrainer._allow_unknown_configs = True, I changed this in file and it works
-    trainer = CCTrainer(config=config, env="spread")
-    for i in range(5000):
+    trainer = DDPGTrainer(config=config, env="spread")
+    for i in range(1000):
         result = trainer.train()
         results.append(result)
-        #print("episode", i, "reward_mean:", result["episode_reward_mean"])
+        print("episode", i, "reward_mean:", result["episode_reward_mean"])
         if i % 100 == 99:
             checkpoint = trainer.save()
-            #print("checkpoint of episode", i, "saved at", checkpoint)
+            print("checkpoint of episode", i, "saved at", checkpoint)
 
-    save_obj(results, "n_cc_ep_out")
+
+    #save_obj(results, "s1_baseline_results")
+
+#checkpoint of episode 999 saved at C:\Users\hugha/ray_results\exp1_stage1_DDPG_centralised\checkpoint_001000\checkpoint-1000

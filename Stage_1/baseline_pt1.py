@@ -5,7 +5,6 @@ my modifications in from ppo_mod and ppo_policy_mod which are taken from rllib's
 I have made a small change to rllib.agents.trainer, trainer.allow_unknown_configs = True. This allows me to create the
 config "use_intrinsic_imitation".
 """
-
 import argparse
 import ray
 import ppo_mod as ppo
@@ -18,6 +17,8 @@ from pettingzoo.mpe import simple_reference_v2
 from ray.tune.registry import register_env
 from bp1_utils import TorchCentralizedCriticModel
 from bp1_utils import CCTrainer
+from bp1_utils import save_obj
+
 
 def env_creator(config):
     env = simple_reference_v2.parallel_env()
@@ -73,22 +74,27 @@ if __name__ == "__main__":
     config["env"] = "spread"
     config["model"] = {"custom_model": "cc_model",
                        "fcnet_hiddens": [128, 128],
-                       "fcnet_activation": nn.Tanh
+                       "fcnet_activation": nn.ReLU
                        }
     config["batch_mode"] = "complete_episodes"
     config["use_critic"] = False
 
 
-    ray.init(num_cpus=1)
+    ray.init()
 
     results = []
     # CCTrainer._allow_unknown_configs = True, I changed this in file and it works
     trainer = CCTrainer(config=config, env="spread")
-    for i in range(5000):
+    for i in range(2):
         result = trainer.train()
         results.append(result)
-        print("episode", i, "reward_mean:", result["episode_reward_mean"])
-        if i % 50 == 0:
+        #print("episode", i, "reward_mean:", result["episode_reward_mean"])
+        if i % 100 == 99:
             checkpoint = trainer.save()
-            print("checkpoint saved at", checkpoint)
+            #print("checkpoint of episode", i, "saved at", checkpoint)
+
+    #import ipdb
+    #ipdb.set_trace()
+
+    save_obj(results, "s1_baseline_results")
 

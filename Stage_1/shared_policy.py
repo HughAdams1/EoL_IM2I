@@ -5,7 +5,6 @@ my modifications in from ppo_mod and ppo_policy_mod which are taken from rllib's
 I have made a small change to rllib.agents.trainer, trainer.allow_unknown_configs = True. This allows me to create the
 config "use_intrinsic_imitation".
 """
-
 import argparse
 import ray
 import ppo_mod as ppo
@@ -18,7 +17,12 @@ from pettingzoo.mpe import simple_reference_v2
 from ray.tune.registry import register_env
 from bp1_utils import TorchCentralizedCriticModel
 from bp1_utils import CCTrainer
+from ray.rllib.agents.ddpg.ddpg import DDPGTrainer
+from ray.rllib.agents.ppo.ppo import PPOTrainer
+
+from ray.rllib.agents.ddpg import ddpg
 from bp1_utils import save_obj
+
 
 def env_creator(config):
     env = simple_reference_v2.parallel_env()
@@ -55,15 +59,12 @@ if __name__ == "__main__":
 
     config["multiagent"] = {
         "env": "spread",
-        "policies": {"ppo_policy_2": (None, observation_space, action_space, {
+        "policies": {"shared_policy": (None, observation_space, action_space, {
                     "framework": args.framework,
                     }),
-                     "ppo_policy_1": (None, observation_space, action_space, {
-                         "framework": args.framework,
-                     })
                      },
-        "policy_mapping_fn": lambda agent_id, episode, **kwargs: "ppo_policy_1" if "1" in agent_id else "ppo_policy_2",
-        "policies_to_train": ["ppo_policy_1", "ppo_policy_2"]
+        "policy_mapping_fn": lambda agent_id, episode, **kwargs: "shared_policy",
+        "policies_to_train": ["shared_policy"]
     }
     config["log_level"] = "WARN"
     config["num_workers"] = 0
@@ -72,7 +73,7 @@ if __name__ == "__main__":
     config["horizon"] = 100
     config["rollout_fragment_length"] = 10
     config["env"] = "spread"
-    config["model"] = {"custom_model": "cc_model",
+    config["model"] = {#"custom_model": "cc_model",
                        "fcnet_hiddens": [128, 128],
                        "fcnet_activation": nn.ReLU
                        }
@@ -84,13 +85,15 @@ if __name__ == "__main__":
 
     results = []
     # CCTrainer._allow_unknown_configs = True, I changed this in file and it works
-    trainer = CCTrainer(config=config, env="spread")
-    for i in range(5000):
+    trainer = PPOTrainer(config=config, env="spread")
+    for i in range(2000):
         result = trainer.train()
         results.append(result)
-        #print("episode", i, "reward_mean:", result["episode_reward_mean"])
+        print("episode", i, "reward_mean:", result["episode_reward_mean"])
         if i % 100 == 99:
             checkpoint = trainer.save()
             #print("checkpoint of episode", i, "saved at", checkpoint)
 
-    save_obj(results, "n_cc_ep_out")
+
+    #save_obj(results, "s1_baseline_results")
+

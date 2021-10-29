@@ -27,6 +27,8 @@ F = None
 if nn is not None:
     F = nn.functional
 
+#set 5 for spread, set 50 for reference
+action_size = 5
 
 class Imitation(Exploration):
     """Implementation of:
@@ -290,16 +292,22 @@ class Imitation(Exploration):
                 pred_teach_actions, _ = self.model._teacher_net({SampleBatch.OBS: teach_inputs})
 
                 opp_actions_one_hot = F.one_hot(torch.from_numpy(opponent_batch[SampleBatch.ACTIONS]
-                                                ).to(policy.device), num_classes=50)
+                                                ).to(policy.device), num_classes=action_size)
+
+                actions_one_hot = F.one_hot(torch.from_numpy(sample_batch[SampleBatch.ACTIONS]
+                                                                 ).to(policy.device), num_classes=action_size)
 
                 forward_l2_norm_sqared = 0.5 * torch.sum(
                     torch.pow(pred_teach_actions - opp_actions_one_hot, 2.0), dim=-1)
                 loss = torch.mean(forward_l2_norm_sqared)
 
+                reward_value = torch.sum(
+                    torch.pow(pred_teach_actions - actions_one_hot, 2.0), dim=-1)
+
                 # Scale intrinsic reward by eta hyper-parameter.
                 sample_batch[SampleBatch.REWARDS] = \
                     sample_batch[SampleBatch.REWARDS] + \
-                    self.eta * forward_l2_norm_sqared.detach().cpu().numpy()
+                    self.eta * reward_value.detach().cpu().numpy()
 
                 self._optimizer_teach.zero_grad()
                 loss.backward()

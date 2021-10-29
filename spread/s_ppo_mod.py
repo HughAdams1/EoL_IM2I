@@ -88,7 +88,7 @@ DEFAULT_CONFIG = with_common_config({
     # Share layers for value function. If you set this to True, it's important
     # to tune vf_loss_coeff.
     # Use config.model.vf_share_layers instead.
-    "vf_share_layers": DEPRECATED_VALUE,
+    "vf_share_layers": DEPRECATED_VALUE
 })
 
 # __sphinx_doc_end__

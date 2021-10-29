@@ -5,23 +5,34 @@ my modifications in from ppo_mod and ppo_policy_mod which are taken from rllib's
 I have made a small change to rllib.agents.trainer, trainer.allow_unknown_configs = True. This allows me to create the
 config "use_intrinsic_imitation".
 """
-
 import argparse
 import ray
-import ppo_mod as ppo
+import spread.s_ppo_mod as ppo
 from ray.rllib.examples.models.centralized_critic_models import \
     CentralizedCriticModel
 from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.framework import try_import_tf, try_import_torch
 from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
-from pettingzoo.mpe import simple_reference_v2
+from pettingzoo.mpe import simple_spread_v2
 from ray.tune.registry import register_env
-from bp1_utils import TorchCentralizedCriticModel
-from bp1_utils import CCTrainer
-from bp1_utils import save_obj
+from s_bp1_utils import TorchCentralizedCriticModel
+from s_bp1_utils import CCTrainer
+from s_bp1_utils import save_obj
+
+
 
 def env_creator(config):
-    env = simple_reference_v2.parallel_env()
+    #N = config["env_config"]["N"]
+    #print(N)
+    #local_ratio = config["env_config"]["local_ratio"]
+    #max_cycles = config["env_config"]["max_cycles"]
+    #continuous_actions = config["env_config"]["max_cycles"]
+    env = simple_spread_v2.parallel_env(
+        N=2,
+        #local_ratio=local_ratio,
+        #max_cycles=max_cycles,
+        #continuous_actions=continuous_actions
+    )
     return env
 
 register_env("spread", lambda config: ParallelPettingZooEnv(env_creator(config)))
@@ -42,7 +53,9 @@ parser.add_argument(
 
 if __name__ == "__main__":
     config = ppo.DEFAULT_CONFIG.copy()
-    config["env_config"] = {"local_ratio": 0.5, "max_cycles": 25, "continuous_actions": False}
+    config["env_config"] = {"N": 2, "local_ratio": 0.5, "max_cycles": 25, "continuous_actions": False}
+    #import ipdb
+    #ipdb.set_trace()
     env = ParallelPettingZooEnv(env_creator(config))
     observation_space = env.observation_space
     action_space = env.action_space
@@ -73,11 +86,11 @@ if __name__ == "__main__":
     config["rollout_fragment_length"] = 10
     config["env"] = "spread"
     config["model"] = {"custom_model": "cc_model",
-                       "fcnet_hiddens": [128, 128],
+                       "fcnet_hiddens": [64, 64],
                        "fcnet_activation": nn.ReLU
                        }
     config["batch_mode"] = "complete_episodes"
-    config["use_critic"] = True
+    config["use_critic"] = False
 
 
     ray.init()
@@ -93,4 +106,8 @@ if __name__ == "__main__":
             checkpoint = trainer.save()
             #print("checkpoint of episode", i, "saved at", checkpoint)
 
-    save_obj(results, "n_cc_ep_out")
+    #import ipdb
+    #ipdb.set_trace()
+
+    save_obj(results, "s1_baseline_results")
+

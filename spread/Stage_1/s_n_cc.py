@@ -14,14 +14,15 @@ from ray.rllib.examples.models.centralized_critic_models import \
 from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.framework import try_import_tf, try_import_torch
 from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
-from pettingzoo.mpe import simple_reference_v2
+from pettingzoo.mpe import simple_spread_v2
 from ray.tune.registry import register_env
-from bp1_utils import TorchCentralizedCriticModel
-from bp1_utils import CCTrainer
-from bp1_utils import save_obj
+from s_bp1_utils import TorchCentralizedCriticModel
+from s_bp1_utils import CCTrainer
+from s_bp1_utils import save_obj
+
 
 def env_creator(config):
-    env = simple_reference_v2.parallel_env()
+    env = simple_spread_v2.parallel_env(N=2)
     return env
 
 register_env("spread", lambda config: ParallelPettingZooEnv(env_creator(config)))
@@ -73,7 +74,7 @@ if __name__ == "__main__":
     config["rollout_fragment_length"] = 10
     config["env"] = "spread"
     config["model"] = {"custom_model": "cc_model",
-                       "fcnet_hiddens": [128, 128],
+                       "fcnet_hiddens": [64, 64],
                        "fcnet_activation": nn.ReLU
                        }
     config["batch_mode"] = "complete_episodes"
@@ -93,4 +94,4 @@ if __name__ == "__main__":
             checkpoint = trainer.save()
             #print("checkpoint of episode", i, "saved at", checkpoint)
 
-    save_obj(results, "n_cc_ep_out")
+    save_obj(results, "s_n_cc_ep_out")

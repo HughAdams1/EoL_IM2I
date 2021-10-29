@@ -11,12 +11,12 @@ import ray.rllib.agents.ppo as ppo
 import torch.nn.functional as F
 ###############################################
 #from ray.rllib.agents.ppo.ppo import PPOTrainer
-from ppo_mod import PPOTrainer
+from s_ppo_mod import PPOTrainer
 ###############################################
 from ray.rllib.models.catalog import ModelCatalog
 
 #######################################################################
-from ppo_policy_mod import PPOTorchPolicy, \
+from s_ppo_policy_mod import PPOTorchPolicy, \
     KLCoeffMixin as TorchKLCoeffMixin, ppo_surrogate_loss as torch_loss
 #######################################################################
 import dill as pickle
@@ -76,10 +76,10 @@ class TorchCentralizedCriticModel(TorchModelV2, nn.Module):
         #import ipdb
         #ipdb.set_trace()
         # Central VF maps (obs, opp_obs, opp_act) -> vf_pred
-        input_size = 92  # len(obs_space) + len(obs_space) + len(action_space)  # obs + opp_obs + opp_act
+        input_size = 74  # len(obs_space) + len(obs_space) + len(action_space)  # obs + opp_obs + opp_act
         self.central_vf = nn.Sequential(
-            SlimFC(input_size, 108, activation_fn=nn.Tanh),
-            SlimFC(108, 1),
+            SlimFC(input_size, 64, activation_fn=nn.Tanh),
+            SlimFC(64, 1),
         )
 
     @override(ModelV2)

@@ -6,6 +6,7 @@ This has been modified to include imitation in list of possible exploration stra
 from ray.rllib.utils.exploration.curiosity import Curiosity
 from ray.rllib.utils.exploration.exploration import Exploration
 from ray.rllib.utils.exploration.imitation import Imitation
+from ray.rllib.utils.exploration.imitation_spread import Imitation as Imitation_Spread
 from ray.rllib.utils.exploration.epsilon_greedy import EpsilonGreedy
 from ray.rllib.utils.exploration.gaussian_noise import GaussianNoise
 from ray.rllib.utils.exploration.ornstein_uhlenbeck_noise import \

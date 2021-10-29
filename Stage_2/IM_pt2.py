@@ -13,7 +13,8 @@ from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 from pettingzoo.mpe import simple_reference_v2
 from ray.tune.registry import register_env
 from bp1_utils import TorchCentralizedCriticModel
-from bp1_utils import CCTrainer as CCTrainer_loaded
+#from bp1_utils import CCTrainer as CCTrainer_loaded
+from ray.rllib.agents.ppo.ppo import PPOTrainer
 
 def env_creator(config):
     env = simple_reference_v2.parallel_env()
@@ -33,7 +34,7 @@ parser.add_argument(
     "--framework",
     choices=["tf", "tf2", "tfe", "torch"],
     default="torch",
-    help="The DL framework specifier.")
+    help="The DL framework 6.")
 
 if __name__ == "__main__":
     config = ppo.DEFAULT_CONFIG.copy()
@@ -50,15 +51,12 @@ if __name__ == "__main__":
 
     config["multiagent"] = {
         "env": "spread",
-        "policies": {"ppo_policy_2": (None, observation_space, action_space, {
-            "framework": args.framework,
-        }),
-                     "ppo_policy_1": (None, observation_space, action_space, {
-                         "framework": args.framework,
-                     })
+        "policies": {"shared_policy": (None, observation_space, action_space, {
+                    "framework": args.framework,
+                    }),
                      },
-        "policy_mapping_fn": lambda agent_id, episode, **kwargs: "ppo_policy_1" if "1" in agent_id else "ppo_policy_2",
-        "policies_to_train": ["ppo_policy_1", "ppo_policy_2"]
+        "policy_mapping_fn": lambda agent_id, episode, **kwargs: "shared_policy",
+        "policies_to_train": ["shared_policy"]
     }
     config["log_level"] = "WARN"
     config["num_workers"] = 0
@@ -67,17 +65,17 @@ if __name__ == "__main__":
     config["horizon"] = 100
     config["rollout_fragment_length"] = 10
     config["env"] = "spread"
-    config["model"] = {"custom_model": "cc_model",
+    config["model"] = {#"custom_model": "cc_model",
                        "fcnet_hiddens": [128, 128],
                        "fcnet_activation": nn.Tanh
                        }
     config["batch_mode"] = "complete_episodes"
-    config["use_critic"] = False
-    config["use_intrinsic_imitation"] = False
-    ray.init(num_cpus=1)
+    config["use_critic"] = True
 
-    trainer_loaded = CCTrainer_loaded(config=config, env="spread")
-    trainer_loaded.restore("checkpoint_000006/checkpoint-6")
+    ray.init()
+
+    trainer_loaded = PPOTrainer(config=config, env="spread")
+    trainer_loaded.restore("exp1_stage1_PPO_centralised/checkpoint_001700/checkpoint-1700")
     weights = trainer_loaded.get_weights()
 
     config_student = ppo.DEFAULT_CONFIG.copy()
@@ -85,18 +83,15 @@ if __name__ == "__main__":
 
     config_student["multiagent"] = {
         "env": "spread",
-        "policies": {"ppo_policy_1": (None, observation_space, action_space, {
-            "framework": args.framework,
-        }),
-                     "ppo_policy_2": (None, observation_space, action_space, {
-                         "framework": args.framework,
-                     }),
+        "policies": {"shared_policy": (None, observation_space, action_space, {
+                    "framework": args.framework,
+                    }),
                      "ppo_policy_student": (None, observation_space, action_space, {
                          "framework": args.framework,
                      }),
                      },
         "policy_mapping_fn": lambda agent_id, episode,
-                                    **kwargs: "ppo_policy_1" if "0" in agent_id else "ppo_policy_student",
+                                    **kwargs: "shared_policy" if "0" in agent_id else "ppo_policy_student",
         "policies_to_train": ["ppo_policy_student"]
     }
     config_student["log_level"] = "WARN"
@@ -106,26 +101,17 @@ if __name__ == "__main__":
     config_student["horizon"] = 100
     config_student["rollout_fragment_length"] = 10
     config_student["env"] = "spread"
-    config_student["model"] = {"custom_model": "cc_model",
+    config_student["model"] = {
                        "fcnet_hiddens": [128, 128],
-                       "fcnet_activation": nn.Tanh
+                       "fcnet_activation": nn.ReLU
                        }
     config_student["batch_mode"] = "complete_episodes"
-    config_student["use_critic"] = False
-    config["exploration_config"] = {
+    config_student["use_critic"] = True
+    config_student["exploration_config"] = {
         "type": "Imitation",  # <- Use the Curiosity module for exploring.
         "eta": 1.0,  # Weight for intrinsic rewards before being added to extrinsic ones.
         "lr": 0.001,  # Learning rate of the curiosity (ICM) module.
-        "feature_dim": 288,  # Dimensionality of the generated feature vectors.
-        # Setup of the feature net (used to encode observations into feature (latent) vectors).
-        "feature_net_config": {
-            "fcnet_hiddens": [],
-            "fcnet_activation": "relu",
-        },
-        "inverse_net_hiddens": [256],  # Hidden layers of the "inverse" model.
-        "inverse_net_activation": "relu",  # Activation of the "inverse" model.
-        "forward_net_hiddens": [256],  # Hidden layers of the "forward" model.
-        "forward_net_activation": "relu",  # Activation of the "forward" model.
+
         "beta": 0.2,  # Weight for the "forward" loss (beta) over the "inverse" loss (1.0 - beta).
         # Specify, which exploration sub-type to use (usually, the algo's "default"
         # exploration, e.g. EpsilonGreedy for DQN, StochasticSampling for PG/SAC).
@@ -134,21 +120,17 @@ if __name__ == "__main__":
         }
     }
 
-
-    trainer_snt = CCTrainer_loaded(config=config_student, env="spread")
-    trainer_snt.set_weights(trainer_loaded.get_weights(["ppo_policy_1"]))
-    trainer_snt.set_weights(trainer_loaded.get_weights(["ppo_policy_2"]))
+    trainer_snt = PPOTrainer(config=config_student, env="spread")
+    trainer_snt.set_weights(trainer_loaded.get_weights(["shared_policy"]))
 
     new_weights = trainer_snt.get_weights()
 
     results = []
 
-    for i in range(2):
+    for i in range(3000):
         result = trainer_snt.train()
-        #print(result)
+        #print("episode", i, "reward_mean:", result["episode_reward_mean"])
         results.append(result)
-        #print("episode_reward_mean:", result["episode_reward_mean"])
-
-        #if i % 5 == 4:
-         #   checkpoint = trainer_snt.save()
-          #  print("checkpoint saved at", checkpoint)
+        if i % 100 == 99:
+            checkpoint = trainer_snt.save()
+            print("episode", i,"checkpoint", checkpoint)
