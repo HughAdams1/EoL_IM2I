@@ -31,25 +31,6 @@ if nn is not None:
 action_size = 5
 
 class Imitation(Exploration):
-    """Implementation of:
-    [1] Curiosity-driven Exploration by Self-supervised Prediction
-    Pathak, Agrawal, Efros, and Darrell - UC Berkeley - ICML 2017.
-    https://arxiv.org/pdf/1705.05363.pdf
-
-    Learns a simplified model of the environment based on three networks:
-    1) Embedding observations into latent space ("feature" network).
-    2) Predicting the action, given two consecutive embedded observations
-        ("inverse" network).
-    3) Predicting the next embedded obs, given an obs and action
-        ("forward" network).
-
-    The less the agent is able to predict the actually observed next feature
-    vector, given obs and action (through the forwards network), the larger the
-    "intrinsic reward", which will be added to the extrinsic reward.
-    Therefore, if a state transition was unexpected, the agent becomes
-    "curious" and will further explore this transition leading to better
-    exploration in sparse rewards environments.
-    """
 
     def __init__(self,
                  action_space: Space,
@@ -62,38 +43,7 @@ class Imitation(Exploration):
                  lr: float = 1e-3,
                  sub_exploration: Optional[FromConfigSpec] = None,
                  **kwargs):
-        """Initializes a Curiosity object.
 
-        Uses as defaults the hyperparameters described in [1].
-
-        Args:
-             feature_dim (int): The dimensionality of the feature (phi)
-                vectors.
-             feature_net_config (Optional[ModelConfigDict]): Optional model
-                configuration for the feature network, producing feature
-                vectors (phi) from observations. This can be used to configure
-                fcnet- or conv_net setups to properly process any observation
-                space.
-             inverse_net_hiddens (Tuple[int]): Tuple of the layer sizes of the
-                inverse (action predicting) NN head (on top of the feature
-                outputs for phi and phi').
-             inverse_net_activation (str): Activation specifier for the inverse
-                net.
-             forward_net_hiddens (Tuple[int]): Tuple of the layer sizes of the
-                forward (phi' predicting) NN head.
-             forward_net_activation (str): Activation specifier for the forward
-                net.
-             beta (float): Weight for the forward loss (over the inverse loss,
-                which gets weight=1.0-beta) in the common loss term.
-             eta (float): Weight for intrinsic rewards before being added to
-                extrinsic ones.
-             lr (float): The learning rate for the curiosity-specific
-                optimizer, optimizing feature-, inverse-, and forward nets.
-             sub_exploration (Optional[FromConfigSpec]): The config dict for
-                the underlying Exploration to use (e.g. epsilon-greedy for
-                DQN). If None, uses the FromSpecDict provided in the Policy's
-                default config.
-        """
         if not isinstance(action_space, (Discrete, MultiDiscrete)):
             raise ValueError(
                 "Only (Multi)Discrete action spaces supported for Curiosity "

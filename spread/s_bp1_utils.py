@@ -1,6 +1,5 @@
-"""An example of customizing PPO to leverage a centralized critic.
-Here the model and policy are hard-coded to implement a centralized critic
-for TwoStepGame, but you can adapt this for your own use cases.
+"""
+Utils for the spread game
 
 """
 

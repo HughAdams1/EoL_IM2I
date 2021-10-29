@@ -1,6 +1,8 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-
+"""
+This produces the results for experiment 2 stage 2
+"""
 df_1 = pd.read_csv('../exp1_stage2_IM/progress.csv')
 df_2 = pd.read_csv('../exp1_stage2_PPO/progress.csv')
 

@@ -1,9 +1,5 @@
 """
-This trains PPO with a centralised critic, creating two agents, that we will use as Teachers. It is utilising
-my modifications in from ppo_mod and ppo_policy_mod which are taken from rllib's ppo folder.
-
-I have made a small change to rllib.agents.trainer, trainer.allow_unknown_configs = True. This allows me to create the
-config "use_intrinsic_imitation".
+Main for DDPG
 """
 import argparse
 import ray

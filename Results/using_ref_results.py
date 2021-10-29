@@ -1,6 +1,8 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-
+"""
+This produces the graphs for experiment 1 stage 1
+"""
 df_1 = pd.read_csv('../exp1_stage1_PPO_cc/progress.csv')
 df_2 = pd.read_csv('../exp1_stage1_PPO/progress.csv')
 df_3 = pd.read_csv('../exp1_stage1_PPO_IM/progress.csv')
